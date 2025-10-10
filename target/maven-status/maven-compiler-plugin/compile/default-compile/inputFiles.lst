@@ -1,0 +1,12 @@
+C:\Users\ismet\IdeaProjects\integration-gateway\src\main\java\se\moln\integrationgateway\config\WebConfig.java
+C:\Users\ismet\IdeaProjects\integration-gateway\src\main\java\se\moln\integrationgateway\controller\IntegrationController.java
+C:\Users\ismet\IdeaProjects\integration-gateway\src\main\java\se\moln\integrationgateway\dto\OrderStats.java
+C:\Users\ismet\IdeaProjects\integration-gateway\src\main\java\se\moln\integrationgateway\dto\PageResponse.java
+C:\Users\ismet\IdeaProjects\integration-gateway\src\main\java\se\moln\integrationgateway\dto\ProductResponse.java
+C:\Users\ismet\IdeaProjects\integration-gateway\src\main\java\se\moln\integrationgateway\dto\SummaryResponse.java
+C:\Users\ismet\IdeaProjects\integration-gateway\src\main\java\se\moln\integrationgateway\dto\WeatherSummary.java
+C:\Users\ismet\IdeaProjects\integration-gateway\src\main\java\se\moln\integrationgateway\IntegrationGatewayApplication.java
+C:\Users\ismet\IdeaProjects\integration-gateway\src\main\java\se\moln\integrationgateway\service\OrderClient.java
+C:\Users\ismet\IdeaProjects\integration-gateway\src\main\java\se\moln\integrationgateway\service\ProductClient.java
+C:\Users\ismet\IdeaProjects\integration-gateway\src\main\java\se\moln\integrationgateway\service\WeatherClient.java
+C:\Users\ismet\IdeaProjects\integration-gateway\src\main\java\se\moln\integrationgateway\util\FormatUtil.java

@@ -1,0 +1,3 @@
+2025-10-09 21:03:07.778+02:00 INFO  c.m.a.a.i.c.ConfigurationBuilder - Some telemetry may be sampled out because a default sampling configuration was added in version 3.4.0 to reduce the default billing cost. You can set the sampling configuration explicitly: https://learn.microsoft.com/azure/azure-monitor/app/java-standalone-config#sampling
+2025-10-09 21:03:10.337+02:00 INFO  c.m.applicationinsights.agent - Application Insights Java Agent 3.5.4 started successfully (PID 19240, JVM running for 3.522 s)
+2025-10-09 21:03:10.337+02:00 INFO  c.m.applicationinsights.agent - Java version: 21.0.4, vendor: Amazon.com Inc., home: C:\Program Files\Amazon Corretto\jdk21.0.4_7

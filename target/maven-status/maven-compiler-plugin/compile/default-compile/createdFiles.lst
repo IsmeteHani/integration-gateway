@@ -1,0 +1,12 @@
+se\moln\integrationgateway\dto\SummaryResponse.class
+se\moln\integrationgateway\controller\IntegrationController.class
+se\moln\integrationgateway\config\WebConfig.class
+se\moln\integrationgateway\service\ProductClient.class
+se\moln\integrationgateway\dto\OrderStats.class
+se\moln\integrationgateway\dto\ProductResponse.class
+se\moln\integrationgateway\util\FormatUtil.class
+se\moln\integrationgateway\dto\WeatherSummary.class
+se\moln\integrationgateway\service\WeatherClient.class
+se\moln\integrationgateway\IntegrationGatewayApplication.class
+se\moln\integrationgateway\dto\PageResponse.class
+se\moln\integrationgateway\service\OrderClient.class
