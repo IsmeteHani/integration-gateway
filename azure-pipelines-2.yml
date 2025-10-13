@@ -1,0 +1,50 @@
+trigger:
+  - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+- stage: Build
+  jobs:
+
+  - job: backend
+    displayName: Build backend (Spring Boot)
+    steps:
+    - checkout: self
+
+    - task: UseJava@1
+      displayName: 'Use Java 21'
+      inputs:
+        distribution: 'Microsoft'
+        versionSpec: '21'
+
+    - script: chmod +x ./gradlew
+      displayName: 'chmod gradlew'
+
+    - script: ./gradlew clean bootJar -x test
+      displayName: 'Gradle build (bootJar)'
+
+    - publish: build/libs
+      artifact: backend
+      displayName: 'Publish backend artifact'
+
+  - job: frontend
+    displayName: Build frontend (ui-react)
+    steps:
+    - checkout: self
+
+    - task: NodeTool@0
+      displayName: 'Use Node 20'
+      inputs:
+        versionSpec: '20.x'
+
+    - script: |
+        cd ui-react
+        npm ci
+        npm run build
+      displayName: 'npm ci && build'
+
+    - publish: ui-react/dist
+      artifact: frontend
+      displayName: 'Publish frontend artifact'
