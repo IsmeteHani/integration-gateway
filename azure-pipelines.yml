@@ -1,84 +1,97 @@
 # azure-pipelines.yml
 trigger:
-  - main
-
-variables:
-  UI_DIR: 'ui-react'
+  branches:
+    include:
+      - main
 
 pool:
   vmImage: 'ubuntu-latest'
 
+variables:
+  # Ndrysho nëse ke strukturë tjetër
+  BACKEND_DIR: '.'
+  FRONTEND_DIR: 'ui-react'
+  ARTIFACT_NAME_BACKEND: 'backend-jar'
+  ARTIFACT_NAME_FRONTEND: 'frontend-dist'
+
 stages:
-  - stage: Build
-    displayName: Build all
-    jobs:
+# =========================
+# Stage: Build
+# =========================
+- stage: Build
+  displayName: Build frontend & backend
+  jobs:
 
-      # =========================
-      # Backend (Spring Boot)
-      # =========================
-      - job: backend
-        displayName: Build backend (Spring Boot)
-        steps:
-          - checkout: self
+  # ---------- Backend (Maven) ----------
+  - job: backend
+    displayName: Build backend (Spring Boot)
+    steps:
+      - checkout: self
+        fetchDepth: 0
 
-          # ✅ Forma e SAKTË e task-ut për Java
-          - task: UseJava@1
-            displayName: 'Use Java 21'
-            inputs:
-              distribution: 'Microsoft'     # ose 'Temurin'
-              versionSpec: '21'
+      # Java 21 (task i saktë)
+      - task: UseJavaVersion@1
+        displayName: 'Use Java 21'
+        inputs:
+          versionSpec: '21'
+          distribution: 'microsoft'
 
-          # Cache për Gradle (opsionale por e dobishme)
-          - task: Cache@2
-            displayName: Cache Gradle
-            inputs:
-              key: 'gradle | "$(Agent.OS)" | **/gradle-wrapper.properties, **/build.gradle, **/settings.gradle'
-              restoreKeys: |
-                gradle | "$(Agent.OS)"
-                gradle
-              path: ~/.gradle/caches
+      # Cache për Maven
+      - task: Cache@2
+        displayName: Cache Maven
+        inputs:
+          key: 'maven | "$(Agent.OS)" | **/pom.xml'
+          restoreKeys: |
+            maven | "$(Agent.OS)"
+          path: $(HOME)/.m2/repository
 
-          - script: chmod +x ./gradlew
-            displayName: 'chmod gradlew'
+      # Build pa teste (ndrysho nëse do t’i ekzekutosh)
+      - script: |
+          cd $(BACKEND_DIR)
+          mvn -B -ntp -DskipTests clean package
+        displayName: 'Maven package'
 
-          - script: ./gradlew clean bootJar -x test
-            displayName: 'Gradle build (bootJar)'
+      # Publiko JAR-in si artifact
+      - task: PublishBuildArtifacts@1
+        displayName: 'Publish backend artifact'
+        inputs:
+          PathtoPublish: '$(BACKEND_DIR)/target'
+          ArtifactName: '$(ARTIFACT_NAME_BACKEND)'
+          publishLocation: 'Container'
 
-          - publish: build/libs
-            artifact: backend
-            displayName: 'Publish backend artifact'
+  # ---------- Frontend (Vite/React) ----------
+  - job: frontend
+    displayName: Build frontend (Vite/React)
+    steps:
+      - checkout: self
+        fetchDepth: 0
 
-      # =========================
-      # Frontend (ui-react)
-      # =========================
-      - job: frontend
-        displayName: Build frontend (ui-react)
-        steps:
-          - checkout: self
+      # Node 20.x
+      - task: NodeTool@0
+        displayName: 'Use Node 20.x'
+        inputs:
+          versionSpec: '20.x'
 
-          - task: NodeTool@0
-            displayName: 'Use Node 20'
-            inputs:
-              versionSpec: '20.x'
+      # Cache për node_modules sipas package-lock.json
+      - task: Cache@2
+        displayName: Cache NPM
+        inputs:
+          key: 'npm | "$(Agent.OS)" | $(FRONTEND_DIR)/package-lock.json'
+          restoreKeys: |
+            npm | "$(Agent.OS)"
+          path: '$(FRONTEND_DIR)/node_modules'
 
-          # Cache npm (opsionale)
-          - task: Cache@2
-            displayName: Cache npm
-            inputs:
-              key: 'npm | "$(Agent.OS)" | $(UI_DIR)/package-lock.json'
-              restoreKeys: |
-                npm | "$(Agent.OS)"
-                npm
-              path: $(Pipeline.Workspace)/.npm
+      # Install + Build
+      - script: |
+          cd $(FRONTEND_DIR)
+          npm ci
+          npm run build
+        displayName: 'npm ci && npm run build'
 
-          - script: |
-              export npm_config_cache="$(Pipeline.Workspace)/.npm"
-              cd $(UI_DIR)
-              npm ci
-              # Nëse build kërkon lightningcss, është në package.json -> devDependencies
-              npm run build
-            displayName: 'npm ci && build'
-
-          - publish: $(UI_DIR)/dist
-            artifact: frontend
-            displayName: 'Publish frontend artifact'
+      # Publiko dist/ si artifact
+      - task: PublishBuildArtifacts@1
+        displayName: 'Publish frontend artifact'
+        inputs:
+          PathtoPublish: '$(FRONTEND_DIR)/dist'
+          ArtifactName: '$(ARTIFACT_NAME_FRONTEND)'
+          publishLocation: 'Container'
