@@ -1,37 +1,15 @@
-HELP.md
-.gradle
-build/
-!gradle/wrapper/gradle-wrapper.jar
-!**/src/main/**/build/
-!**/src/test/**/build/
-
-### STS ###
-.apt_generated
-.classpath
-.factorypath
-.project
-.settings
-.springBeans
-.sts4-cache
-bin/
-!**/src/main/**/bin/
-!**/src/test/**/bin/
-
-### IntelliJ IDEA ###
-.idea
-*.iws
+﻿# Maven / Spring
+target/
 *.iml
-*.ipr
-out/
-!**/src/main/**/out/
-!**/src/test/**/out/
+.idea/
 
-### NetBeans ###
-/nbproject/private/
-/nbbuild/
-/dist/
-/nbdist/
-/.nb-gradle/
+# Node / Vite
+ui-react/node_modules/
+ui-react/dist/
+ui-react/.vite/
+ui-react/.parcel-cache/
+ui-react/.rollup.cache/
 
-### VS Code ###
-.vscode/
+# OS
+.DS_Store
+Thumbs.db
