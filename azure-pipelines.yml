@@ -1,97 +1,177 @@
 # azure-pipelines.yml
 trigger:
   branches:
-    include:
-      - main
+    include: [ main ]
 
 pool:
-  vmImage: 'ubuntu-latest'
+  vmImage: ubuntu-latest
 
 variables:
-  # Ndrysho nëse ke strukturë tjetër
-  BACKEND_DIR: '.'
-  FRONTEND_DIR: 'ui-react'
-  ARTIFACT_NAME_BACKEND: 'backend-jar'
-  ARTIFACT_NAME_FRONTEND: 'frontend-dist'
+  BACKEND_DIR: "."
+  FRONTEND_DIR: "ui-react"
+  ARTIFACT_BACKEND: "backend-jar"
+  ARTIFACT_FRONTEND: "frontend-dist"
+
+  # --- NDRYSHO sipas mjedisit tënd ---
+  AZURE_SERVICE_CONN: "svc-igw"
+  AZ_RESOURCE_GROUP: "rg-igw-demo"
+  APPINSIGHTS_NAME: "ai-igw-demo"
+  WEBAPP_NAME: "igw-backend-app"          # App Service (Linux, Java SE)
+  STORAGE_NAME: "stigwfrontenddemo"       # emër global unik (vetëm minuscule)
 
 stages:
-# =========================
-# Stage: Build
-# =========================
+# ---------- Build ----------
 - stage: Build
-  displayName: Build frontend & backend
   jobs:
-
-  # ---------- Backend (Maven) ----------
   - job: backend
     displayName: Build backend (Spring Boot)
     steps:
-      - checkout: self
-        fetchDepth: 0
+    - checkout: self
 
-      # Java 21 (task i saktë)
-      - task: UseJavaVersion@1
-        displayName: 'Use Java 21'
-        inputs:
-          versionSpec: '21'
-          distribution: 'microsoft'
+    - task: JavaToolInstaller@0
+      displayName: "Use Java 21 (PreInstalled)"
+      inputs:
+        versionSpec: "21"
+        jdkArchitectureOption: "x64"
+        jdkSourceOption: "PreInstalled"
 
-      # Cache për Maven
-      - task: Cache@2
-        displayName: Cache Maven
-        inputs:
-          key: 'maven | "$(Agent.OS)" | **/pom.xml'
-          restoreKeys: |
-            maven | "$(Agent.OS)"
-          path: $(HOME)/.m2/repository
+    - script: |
+        java -version
+        mvn -v
+      displayName: "Verify Java & Maven"
 
-      # Build pa teste (ndrysho nëse do t’i ekzekutosh)
-      - script: |
-          cd $(BACKEND_DIR)
-          mvn -B -ntp -DskipTests clean package
-        displayName: 'Maven package'
+    - task: Cache@2
+      inputs:
+        key: 'maven | $(Agent.OS) | **/pom.xml'
+        restoreKeys: |
+          maven | $(Agent.OS)
+        path: $(HOME)/.m2/repository
 
-      # Publiko JAR-in si artifact
-      - task: PublishBuildArtifacts@1
-        displayName: 'Publish backend artifact'
-        inputs:
-          PathtoPublish: '$(BACKEND_DIR)/target'
-          ArtifactName: '$(ARTIFACT_NAME_BACKEND)'
-          publishLocation: 'Container'
+    - script: |
+        cd $(BACKEND_DIR)
+        mvn -B -ntp -DskipTests clean package
+      displayName: "Maven package"
 
-  # ---------- Frontend (Vite/React) ----------
+    # për App Service (Linux Java SE) na duhet .zip me app.jar brenda
+    - task: CopyFiles@2
+      displayName: "Copy JAR to staging"
+      inputs:
+        contents: "$(BACKEND_DIR)/target/*SNAPSHOT.jar"
+        targetFolder: "$(Build.ArtifactStagingDirectory)/backend"
+    - script: |
+        cd "$(Build.ArtifactStagingDirectory)/backend"
+        ls -l
+        JARFILE=$(ls *SNAPSHOT.jar | head -n1)
+        cp "$JARFILE" app.jar
+      displayName: "Rename to app.jar"
+    - task: ArchiveFiles@2
+      displayName: "Archive backend -> app.zip"
+      inputs:
+        rootFolderOrFile: "$(Build.ArtifactStagingDirectory)/backend"
+        includeRootFolder: false
+        archiveType: zip
+        archiveFile: "$(Build.ArtifactStagingDirectory)/app.zip"
+
+    - upload: "$(Build.ArtifactStagingDirectory)/app.zip"
+      artifact: $(ARTIFACT_BACKEND)
+
   - job: frontend
     displayName: Build frontend (Vite/React)
     steps:
-      - checkout: self
-        fetchDepth: 0
+    - checkout: self
 
-      # Node 20.x
-      - task: NodeTool@0
-        displayName: 'Use Node 20.x'
-        inputs:
-          versionSpec: '20.x'
+    - task: NodeTool@0
+      inputs:
+        versionSpec: "20.x"
 
-      # Cache për node_modules sipas package-lock.json
-      - task: Cache@2
-        displayName: Cache NPM
-        inputs:
-          key: 'npm | "$(Agent.OS)" | $(FRONTEND_DIR)/package-lock.json'
-          restoreKeys: |
-            npm | "$(Agent.OS)"
-          path: '$(FRONTEND_DIR)/node_modules'
+    - task: Cache@2
+      inputs:
+        key: 'npm | $(Agent.OS) | $(FRONTEND_DIR)/package-lock.json'
+        restoreKeys: |
+          npm | $(Agent.OS)
+        path: "$(FRONTEND_DIR)/node_modules"
 
-      # Install + Build
-      - script: |
-          cd $(FRONTEND_DIR)
-          npm ci
-          npm run build
-        displayName: 'npm ci && npm run build'
+    - script: |
+        cd $(FRONTEND_DIR)
+        npm ci
+        npm run build
+      displayName: "npm ci && build"
 
-      # Publiko dist/ si artifact
-      - task: PublishBuildArtifacts@1
-        displayName: 'Publish frontend artifact'
-        inputs:
-          PathtoPublish: '$(FRONTEND_DIR)/dist'
-          ArtifactName: '$(ARTIFACT_NAME_FRONTEND)'
-          publishLocation: 'Container'
+    - task: PublishBuildArtifacts@1
+      inputs:
+        PathtoPublish: "$(FRONTEND_DIR)/dist"
+        ArtifactName: "$(ARTIFACT_FRONTEND)"
+        publishLocation: "Container"
+
+# ---------- Deploy ----------
+- stage: Deploy
+  dependsOn: Build
+  jobs:
+  - deployment: deploy_backend
+    environment: "prod"
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - download: current
+            artifact: $(ARTIFACT_BACKEND)
+
+          # Konfiguro App Service: startup command + App Insights
+          - task: AzureCLI@2
+            displayName: "Configure Web App settings"
+            inputs:
+              azureSubscription: "$(AZURE_SERVICE_CONN)"
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az webapp config appsettings set \
+                  -g "$(AZ_RESOURCE_GROUP)" -n "$(WEBAPP_NAME)" \
+                  --settings WEBSITE_RUN_FROM_PACKAGE=1
+
+                # Startup command për Java SE në Linux
+                az webapp config set \
+                  -g "$(AZ_RESOURCE_GROUP)" -n "$(WEBAPP_NAME)" \
+                  --startup-file "java -jar /home/site/wwwroot/app.jar"
+
+          # Deploy pakon app.zip te App Service
+          - task: AzureWebApp@1
+            displayName: "Deploy backend to App Service"
+            inputs:
+              azureSubscription: "$(AZURE_SERVICE_CONN)"
+              appName: "$(WEBAPP_NAME)"
+              package: "$(Pipeline.Workspace)/$(ARTIFACT_BACKEND)/app.zip"
+
+  - deployment: deploy_frontend
+    environment: "prod"
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - download: current
+            artifact: $(ARTIFACT_FRONTEND)
+
+          # Ngarkim te Static Website (Azure Storage)
+          - task: AzureCLI@2
+            displayName: "Enable static website & upload"
+            inputs:
+              azureSubscription: "$(AZURE_SERVICE_CONN)"
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -e
+                # aktivizo static website në storage (index.html / 404.html)
+                az storage blob service-properties update \
+                  --account-name "$(STORAGE_NAME)" \
+                  --static-website \
+                  --index-document index.html \
+                  --404-document index.html
+
+                # ngarko build-in
+                az storage blob upload-batch \
+                  --account-name "$(STORAGE_NAME)" \
+                  -s "$(Pipeline.Workspace)/$(ARTIFACT_FRONTEND)" \
+                  -d '$web' --overwrite
+
+                # shfaq URL
+                URL="https://$(STORAGE_NAME).z13.web.core.windows.net"
+                echo "Frontend URL => $URL"
