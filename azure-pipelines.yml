@@ -1,103 +1,84 @@
-# CI për integration-gateway (Java 21 + Gradle) dhe ui-react (Node 20 + Vite)
+# ============================================
+# Azure Pipelines - Integration Gateway (IGW)
+# Ndërton backend (Spring Boot/Gradle) + frontend (Vite/React)
+# Publikon artefakte: backend (JAR) dhe frontend (dist)
+# ============================================
+
 trigger:
-- main
+  branches:
+    include:
+      - main
 
-pr:
-- main
-
+# (Opsionale) variabla të dobishme
 variables:
-  JAVA_VERSION: '21'
-  NODE_VERSION: '20'
-
-pool:
-  vmImage: 'ubuntu-latest'
+  UI_DIR: 'ui-react'               # rruga e frontend-it
+  BACKEND_ARTIFACT: 'backend'
+  FRONTEND_ARTIFACT: 'frontend'
 
 stages:
-# ===================== BUILD =====================
 - stage: Build
-  displayName: Build & Publish artifacts
+  displayName: Build all
   jobs:
-  # ------- Backend (Spring Boot) -------
+
+  # -------------------------
+  # JOB 1: Backend (Gradle)
+  # -------------------------
   - job: backend
     displayName: Build backend (Spring Boot)
+    pool:
+      vmImage: 'ubuntu-latest'
+
     steps:
     - checkout: self
-      fetchDepth: 0
 
-    - task: JavaToolInstaller@0
-      displayName: "Use Java $(JAVA_VERSION)"
+    # ✅ Përdor Java 21 me task-un korrekt UseJava@1
+    - task: UseJava@1
+      displayName: 'Use Java 21'
       inputs:
-        versionSpec: '$(JAVA_VERSION)'
-        jdkArchitectureOption: 'x64'
-        jdkSourceOption: 'PreInstalled'
+        distribution: 'Microsoft'   # ose 'Temurin' / 'Zulu'
+        versionSpec: '21'
 
-    - task: Cache@2
-      displayName: Cache Gradle
-      inputs:
-        key: 'gradle | "$(Agent.OS)" | **/gradle-wrapper.properties, **/build.gradle, **/settings.gradle'
-        path: ~/.gradle/caches
-        restoreKeys: |
-          gradle | "$(Agent.OS)"
+    # Siguro gradle wrapper është ekzekutues
+    - script: chmod +x ./gradlew
+      displayName: 'chmod gradlew'
 
+    # Build Gradle (pa testet nëse do build të shpejtë)
     - script: |
-        chmod +x ./gradlew
         ./gradlew clean build -x test
-      displayName: Gradle build
+      displayName: 'Gradle clean build'
 
-    - task: PublishBuildArtifacts@1
-      displayName: "Publish backend JAR"
-      inputs:
-        PathtoPublish: 'build/libs'
-        ArtifactName: 'backend'
-        publishLocation: 'Container'
+    # Publiko JAR-at e krijuar
+    - publish: build/libs
+      artifact: $(BACKEND_ARTIFACT)
+      displayName: 'Publish backend artifact'
 
-  # ------- Frontend (ui-react / Vite) -------
+  # -------------------------
+  # JOB 2: Frontend (Vite/React)
+  # -------------------------
   - job: frontend
     displayName: Build frontend (ui-react)
+    pool:
+      vmImage: 'ubuntu-latest'
+
     steps:
     - checkout: self
-      fetchDepth: 0
 
+    # ✅ Përdor Node 20
     - task: NodeTool@0
-      displayName: "Use Node $(NODE_VERSION)"
+      displayName: 'Use Node 20'
       inputs:
-        versionSpec: '$(NODE_VERSION)'
+        versionSpec: '20.x'
 
+    # Instalime + build
     - script: |
-        cd ui-react
+        cd $(UI_DIR)
         npm ci
+        # Nëse CI nuk e gjen lightningcss, mund të forcohet:
+        # npm ls lightningcss || npm install -D lightningcss
         npm run build
-      displayName: npm ci && build
+      displayName: 'npm ci & build'
 
-    - task: PublishBuildArtifacts@1
-      displayName: "Publish UI static files"
-      inputs:
-        PathtoPublish: 'ui-react/dist'
-        ArtifactName: 'ui'
-        publishLocation: 'Container'
-
-# ===================== (OPSIONALE) DEPLOY =====================
-# Hiqe komentet nëse ke krijuar Azure Web App dhe service connection.
-# - stage: Deploy
-#   displayName: Deploy to Azure Web App
-#   dependsOn: Build
-#   condition: succeeded()
-#   variables:
-#     AZURE_SERVICE_CONNECTION: 'YOUR-SC-NAME'   # Project Settings > Service connections
-#     WEBAPP_NAME: 'your-webapp-name'            # Emri i App Service
-#   jobs:
-#   - deployment: web
-#     environment: 'dev'
-#     strategy:
-#       runOnce:
-#         deploy:
-#           steps:
-#           - task: AzureWebApp@1
-#             displayName: "Deploy Spring Boot JAR"
-#             inputs:
-#               azureSubscription: '$(AZURE_SERVICE_CONNECTION)'
-#               appName: '$(WEBAPP_NAME)'
-#               package: '$(Pipeline.Workspace)/backend/*.jar'
-#               appType: 'webAppLinux'
-#               runtimeStack: 'JAVA|21-java21'
-#               startupCommand: 'java -jar /home/site/wwwroot/*.jar'
+    # Publiko dist-in e Vite
+    - publish: $(UI_DIR)/dist
+      artifact: $(FRONTEND_ARTIFACT)
+      displayName: 'Publish frontend artifact'
