@@ -1,15 +1,16 @@
-﻿# Maven / Spring
+# Java/Gradle
+.gradle/
+build/
 target/
-*.iml
-.idea/
+*.log
 
-# Node / Vite
+# IntelliJ
+.idea/
+*.iml
+
+# Frontend
 ui-react/node_modules/
 ui-react/dist/
-ui-react/.vite/
-ui-react/.parcel-cache/
-ui-react/.rollup.cache/
 
-# OS
+# T? tjera
 .DS_Store
-Thumbs.db
