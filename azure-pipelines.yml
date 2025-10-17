@@ -12,7 +12,6 @@ variables:
   ARTIFACT_BACKEND: "backend-jar"
   ARTIFACT_FRONTEND: "frontend-dist"
 
-  # --- NDRYSHO sipas mjedisit tënd ---
   AZURE_SERVICE_CONN: "svc-igw"
   AZ_RESOURCE_GROUP: "rg-igw-demo"
   APPINSIGHTS_NAME: "ai-igw-demo"

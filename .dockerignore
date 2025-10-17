@@ -1,0 +1,16 @@
+# Gjithçka e panevojshme për imazhin
+.git
+.gitignore
+.idea
+.vscode
+**/node_modules
+**/dist
+**/target
+**/.m2
+**/.gradle
+**/.vite
+**/.rollup*
+**/*.log
+Dockerfile.frontend
+AppData
+*.md
