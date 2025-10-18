@@ -12,19 +12,19 @@ variables:
   ARTIFACT_FRONTEND: "frontend-dist"
 
   # -------- AZURE ----------
-  # Emri i Service Connection për DEPLOY (ky përdoret nga job-et e deploy-it)
+  # Përdor të njëjtin Service Connection për RBAC & Deploy
   AZURE_SERVICE_CONN: "rg-igw-demo"
-  # Emri i Service Connection ADMIN (duhet Owner/Contributor për të dhënë rolet)
-  AZURE_ADMIN_CONN: "rg-igw-demo"  
+  AZURE_ADMIN_CONN:   "rg-igw-demo"
+
   AZ_SUBSCRIPTION_ID: "df7afb34-aea5-4f80-a3a6-01fdfb865312"
   AZ_RESOURCE_GROUP: "rg-igw-demo"
   WEBAPP_NAME: "igw-backend-app"
   STORAGE_NAME: "stigmfrontendisme01"
 
+stages:
 # =========================================================
 # 1) STAGE: GRANT RBAC (one-time / idempotent)
 # =========================================================
-stages:
 - stage: GrantRBAC
   displayName: "Grant RBAC to pipeline Service Connection (one-time/idempotent)"
   jobs:
@@ -32,7 +32,7 @@ stages:
     displayName: "Identify pipeline Service Principal (appId, objectId)"
     steps:
       - task: AzureCLI@2
-        name: identify   # EMËR I STEP-it (përdoret për outputs)
+        name: identify   # emër i step-it; përdoret për outputs
         displayName: "Discover APPID/OBJECTID of $(AZURE_SERVICE_CONN)"
         inputs:
           azureSubscription: '$(AZURE_SERVICE_CONN)'
@@ -64,6 +64,12 @@ stages:
   - job: GrantRole
     displayName: "Grant 'Storage Blob Data Contributor' to that SP"
     dependsOn: IdentifyPipelineSP
+
+    # ✅ Merr outputs nga job-i i parë me runtime expressions dhe krijo variables të këtij job-i
+    variables:
+      APPID_FROM_PREV: $[ dependencies.IdentifyPipelineSP.outputs['identify.APPID'] ]
+      SCOPE_FROM_PREV: $[ dependencies.IdentifyPipelineSP.outputs['identify.SCOPE'] ]
+
     steps:
       - task: AzureCLI@2
         displayName: "Assign RBAC on Storage (idempotent)"
@@ -73,8 +79,11 @@ stages:
           scriptLocation: inlineScript
           inlineScript: |
             set -euo pipefail
-            APPID="$(dependencies.IdentifyPipelineSP.outputs['identify.APPID'])"
-            SCOPE="$(dependencies.IdentifyPipelineSP.outputs['identify.SCOPE'])"
+
+            # Zëvendësohen nga DevOps para ekzekutimit
+            APPID="$(APPID_FROM_PREV)"
+            SCOPE="$(SCOPE_FROM_PREV)"
+
             if [ -z "$APPID" ] || [ -z "$SCOPE" ]; then
               echo "APPID/SCOPE bosh. Kontrollo job-in IdentifyPipelineSP."
               exit 1
@@ -82,6 +91,7 @@ stages:
 
             echo "Admin SC: $(AZURE_ADMIN_CONN) po jep rol për APPID=$APPID në SCOPE=$SCOPE"
             SP_OBJID=$(az ad sp show --id "$APPID" --query id -o tsv)
+
             # Idempotent: nëse ekziston, mos e prish pipeline-in
             az role assignment create \
               --assignee-object-id "$SP_OBJID" \
@@ -89,7 +99,7 @@ stages:
               --role "Storage Blob Data Contributor" \
               --scope "$SCOPE" || true
 
-            echo "RBAC granted (ose ekzistonte). Fjet 30s për propagim…"
+            echo "RBAC granted (ose ekzistonte). Po pres 30s…"
             sleep 30
 
 # =========================================================
