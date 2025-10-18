@@ -5,20 +5,99 @@ pool:
   vmImage: ubuntu-latest
 
 variables:
+  # -------- PROJEKTI --------
   BACKEND_DIR: "."
   FRONTEND_DIR: "ui-react"
   ARTIFACT_BACKEND: "backend-jar"
   ARTIFACT_FRONTEND: "frontend-dist"
 
-  # 👇 Emri i Service Connection në Azure DevOps (jo RG)
+  # -------- AZURE ----------
+  # Emri i Service Connection për DEPLOY (ky përdoret nga job-et e deploy-it)
   AZURE_SERVICE_CONN: "rg-igw-demo"
+  # Emri i Service Connection ADMIN (duhet Owner/Contributor për të dhënë rolet)
+  AZURE_ADMIN_CONN: "rg-igw-demo"  
+  AZ_SUBSCRIPTION_ID: "df7afb34-aea5-4f80-a3a6-01fdfb865312"
   AZ_RESOURCE_GROUP: "rg-igw-demo"
   WEBAPP_NAME: "igw-backend-app"
   STORAGE_NAME: "stigmfrontendisme01"
 
+# =========================================================
+# 1) STAGE: GRANT RBAC (one-time / idempotent)
+# =========================================================
 stages:
+- stage: GrantRBAC
+  displayName: "Grant RBAC to pipeline Service Connection (one-time/idempotent)"
+  jobs:
+  - job: IdentifyPipelineSP
+    displayName: "Identify pipeline Service Principal (appId, objectId)"
+    steps:
+      - task: AzureCLI@2
+        name: identify   # EMËR I STEP-it (përdoret për outputs)
+        displayName: "Discover APPID/OBJECTID of $(AZURE_SERVICE_CONN)"
+        inputs:
+          azureSubscription: '$(AZURE_SERVICE_CONN)'
+          scriptType: bash
+          scriptLocation: inlineScript
+          inlineScript: |
+            set -euo pipefail
+            echo "== Using deployment Service Connection: $(AZURE_SERVICE_CONN)"
+            az account set --subscription "$(AZ_SUBSCRIPTION_ID)"
+
+            SUB=$(az account show --query id -o tsv)
+            APPID=$(az account show --query user.name -o tsv)   # appId i SC së deploy-it
+            if [ -z "$APPID" ]; then
+              echo "Nuk u gjet appId nga az account show (user.name)."
+              exit 1
+            fi
+            SP_OBJID=$(az ad sp show --id "$APPID" --query id -o tsv || true)
+            SCOPE=$(az storage account show -g '$(AZ_RESOURCE_GROUP)' -n '$(STORAGE_NAME)' --query id -o tsv)
+
+            echo "Subscription: $SUB"
+            echo "APPID (SC deploy): $APPID"
+            echo "OBJECTID (SC deploy): $SP_OBJID"
+            echo "Scope: $SCOPE"
+
+            # Outputs për job-in pasues
+            echo "##vso[task.setvariable variable=APPID;isOutput=true]$APPID"
+            echo "##vso[task.setvariable variable=SCOPE;isOutput=true]$SCOPE"
+
+  - job: GrantRole
+    displayName: "Grant 'Storage Blob Data Contributor' to that SP"
+    dependsOn: IdentifyPipelineSP
+    steps:
+      - task: AzureCLI@2
+        displayName: "Assign RBAC on Storage (idempotent)"
+        inputs:
+          azureSubscription: '$(AZURE_ADMIN_CONN)'
+          scriptType: bash
+          scriptLocation: inlineScript
+          inlineScript: |
+            set -euo pipefail
+            APPID="$(dependencies.IdentifyPipelineSP.outputs['identify.APPID'])"
+            SCOPE="$(dependencies.IdentifyPipelineSP.outputs['identify.SCOPE'])"
+            if [ -z "$APPID" ] || [ -z "$SCOPE" ]; then
+              echo "APPID/SCOPE bosh. Kontrollo job-in IdentifyPipelineSP."
+              exit 1
+            fi
+
+            echo "Admin SC: $(AZURE_ADMIN_CONN) po jep rol për APPID=$APPID në SCOPE=$SCOPE"
+            SP_OBJID=$(az ad sp show --id "$APPID" --query id -o tsv)
+            # Idempotent: nëse ekziston, mos e prish pipeline-in
+            az role assignment create \
+              --assignee-object-id "$SP_OBJID" \
+              --assignee-principal-type ServicePrincipal \
+              --role "Storage Blob Data Contributor" \
+              --scope "$SCOPE" || true
+
+            echo "RBAC granted (ose ekzistonte). Fjet 30s për propagim…"
+            sleep 30
+
+# =========================================================
+# 2) STAGE: BUILD
+# =========================================================
 - stage: Build
-  displayName: Build backend & frontend
+  displayName: "Build backend & frontend"
+  dependsOn: GrantRBAC
   jobs:
   - job: backend
     displayName: Build backend
@@ -84,6 +163,9 @@ stages:
           ArtifactName: '$(ARTIFACT_FRONTEND)'
           publishLocation: 'Container'
 
+# =========================================================
+# 3) STAGE: DEPLOY
+# =========================================================
 - stage: Deploy
   displayName: Deploy to Azure
   dependsOn: Build
@@ -101,7 +183,6 @@ stages:
                 artifactName: '$(ARTIFACT_BACKEND)'
                 targetPath: '$(Pipeline.Workspace)/backend'
 
-            # (Opsionale) Vendos run-from-package dhe/ose stack-un
             - task: AzureCLI@2
               displayName: "Configure Web App"
               inputs:
@@ -110,10 +191,11 @@ stages:
                 scriptLocation: inlineScript
                 inlineScript: |
                   set -euo pipefail
+                  az account set --subscription "$(AZ_SUBSCRIPTION_ID)"
                   az webapp config appsettings set \
                     -g '$(AZ_RESOURCE_GROUP)' -n '$(WEBAPP_NAME)' \
                     --settings WEBSITE_RUN_FROM_PACKAGE=1 >/dev/null
-                  # Nëse s'ke stack-in Java 21 të konfiguruar (Linux):
+                  # Nëse WebApp është Linux dhe s'ke vendosur stack-un Java 21, çkomento:
                   # az webapp config set -g '$(AZ_RESOURCE_GROUP)' -n '$(WEBAPP_NAME)' --linux-fx-version "JAVA|21-java21"
 
             - task: AzureWebApp@1
@@ -124,7 +206,7 @@ stages:
                 package: '$(Pipeline.Workspace)/backend/app.zip'
 
   - deployment: deploy_frontend
-    displayName: Deploy frontend
+    displayName: Deploy frontend (Static Website)
     environment: 'prod'
     strategy:
       runOnce:
@@ -136,12 +218,6 @@ stages:
                 artifactName: '$(ARTIFACT_FRONTEND)'
                 targetPath: '$(Pipeline.Workspace)/frontend'
 
-            - bash: |
-                set -euo pipefail
-                echo "Listing frontend files:"
-                ls -la '$(Pipeline.Workspace)/frontend'
-              displayName: "Sanity check: downloaded dist"
-
             - task: AzureCLI@2
               displayName: "Enable static website & upload"
               inputs:
@@ -150,7 +226,9 @@ stages:
                 scriptLocation: inlineScript
                 inlineScript: |
                   set -euo pipefail
-                  # Aktivizo / konfiguro Static Website (AAD/RBAC)
+                  az account set --subscription "$(AZ_SUBSCRIPTION_ID)"
+
+                  # Aktivizo / konfiguro Static Website me AAD
                   az storage blob service-properties update \
                     --account-name '$(STORAGE_NAME)' \
                     --auth-mode login \
@@ -158,7 +236,7 @@ stages:
                     --index-document index.html \
                     --404-document index.html >/dev/null
 
-                  # Variante A: Upload me overwrite + cache-busting
+                  # Upload me overwrite + shmangie cache
                   az storage blob upload-batch \
                     --account-name '$(STORAGE_NAME)' \
                     --auth-mode login \
@@ -167,14 +245,6 @@ stages:
                     --overwrite true \
                     --content-cache-control "no-cache, no-store, must-revalidate" \
                     --only-show-errors
-
-                  # # Variante B (opsionale): SYNC që fshin skedarët e vjetër
-                  # az storage blob sync \
-                  #   --account-name '$(STORAGE_NAME)' \
-                  #   --auth-mode login \
-                  #   -c '$web' \
-                  #   -s '$(Pipeline.Workspace)/frontend' \
-                  #   --delete-destination true
 
                   ENDPOINT=$(az storage account show -n '$(STORAGE_NAME)' --query "primaryEndpoints.web" -o tsv)
                   echo "Frontend URL => ${ENDPOINT}"
