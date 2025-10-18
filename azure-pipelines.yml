@@ -13,7 +13,7 @@ variables:
   AZURE_SERVICE_CONN: "rg-igw-demo"   # emri i SC që ke
   AZ_RESOURCE_GROUP: "rg-igw-demo"
   WEBAPP_NAME: "igw-backend-app"
-  STORAGE_NAME: "stigwfrontenddemo"
+  STORAGE_NAME: "stigmfrontendisme01"
 
 stages:
 - stage: Build
