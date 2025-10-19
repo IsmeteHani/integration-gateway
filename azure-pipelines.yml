@@ -5,109 +5,25 @@ pool:
   vmImage: ubuntu-latest
 
 variables:
-  # -------- PROJEKTI --------
+  # ---- PROJEKTI ----
   BACKEND_DIR: "."
   FRONTEND_DIR: "ui-react"
   ARTIFACT_BACKEND: "backend-jar"
   ARTIFACT_FRONTEND: "frontend-dist"
 
-  # -------- AZURE ----------
-  # Përdor të njëjtin Service Connection për RBAC & Deploy
-  AZURE_SERVICE_CONN: "rg-igw-demo"
-  AZURE_ADMIN_CONN:   "rg-igw-demo"
-
+  # ---- AZURE ----
+  AZURE_SERVICE_CONN: "rg-igw-demo"            # Emri i Service Connection në DevOps
   AZ_SUBSCRIPTION_ID: "df7afb34-aea5-4f80-a3a6-01fdfb865312"
   AZ_RESOURCE_GROUP: "rg-igw-demo"
   WEBAPP_NAME: "igw-backend-app"
   STORAGE_NAME: "stigmfrontendisme01"
 
 stages:
-# =========================================================
-# 1) STAGE: GRANT RBAC (one-time / idempotent)
-# =========================================================
-- stage: GrantRBAC
-  displayName: "Grant RBAC to pipeline Service Connection (one-time/idempotent)"
-  jobs:
-  - job: IdentifyPipelineSP
-    displayName: "Identify pipeline Service Principal (appId, objectId)"
-    steps:
-      - task: AzureCLI@2
-        name: identify   # emër i step-it; përdoret për outputs
-        displayName: "Discover APPID/OBJECTID of $(AZURE_SERVICE_CONN)"
-        inputs:
-          azureSubscription: '$(AZURE_SERVICE_CONN)'
-          scriptType: bash
-          scriptLocation: inlineScript
-          inlineScript: |
-            set -euo pipefail
-            echo "== Using deployment Service Connection: $(AZURE_SERVICE_CONN)"
-            az account set --subscription "$(AZ_SUBSCRIPTION_ID)"
-
-            SUB=$(az account show --query id -o tsv)
-            APPID=$(az account show --query user.name -o tsv)   # appId i SC së deploy-it
-            if [ -z "$APPID" ]; then
-              echo "Nuk u gjet appId nga az account show (user.name)."
-              exit 1
-            fi
-            SP_OBJID=$(az ad sp show --id "$APPID" --query id -o tsv || true)
-            SCOPE=$(az storage account show -g '$(AZ_RESOURCE_GROUP)' -n '$(STORAGE_NAME)' --query id -o tsv)
-
-            echo "Subscription: $SUB"
-            echo "APPID (SC deploy): $APPID"
-            echo "OBJECTID (SC deploy): $SP_OBJID"
-            echo "Scope: $SCOPE"
-
-            # Outputs për job-in pasues
-            echo "##vso[task.setvariable variable=APPID;isOutput=true]$APPID"
-            echo "##vso[task.setvariable variable=SCOPE;isOutput=true]$SCOPE"
-
-  - job: GrantRole
-    displayName: "Grant 'Storage Blob Data Contributor' to that SP"
-    dependsOn: IdentifyPipelineSP
-
-    # ✅ Merr outputs nga job-i i parë me runtime expressions dhe krijo variables të këtij job-i
-    variables:
-      APPID_FROM_PREV: $[ dependencies.IdentifyPipelineSP.outputs['identify.APPID'] ]
-      SCOPE_FROM_PREV: $[ dependencies.IdentifyPipelineSP.outputs['identify.SCOPE'] ]
-
-    steps:
-      - task: AzureCLI@2
-        displayName: "Assign RBAC on Storage (idempotent)"
-        inputs:
-          azureSubscription: '$(AZURE_ADMIN_CONN)'
-          scriptType: bash
-          scriptLocation: inlineScript
-          inlineScript: |
-            set -euo pipefail
-
-            # Zëvendësohen nga DevOps para ekzekutimit
-            APPID="$(APPID_FROM_PREV)"
-            SCOPE="$(SCOPE_FROM_PREV)"
-
-            if [ -z "$APPID" ] || [ -z "$SCOPE" ]; then
-              echo "APPID/SCOPE bosh. Kontrollo job-in IdentifyPipelineSP."
-              exit 1
-            fi
-
-            echo "Admin SC: $(AZURE_ADMIN_CONN) po jep rol për APPID=$APPID në SCOPE=$SCOPE"
-            SP_OBJID=$(az ad sp show --id "$APPID" --query id -o tsv)
-
-            # Idempotent: nëse ekziston, mos e prish pipeline-in
-            az role assignment create \
-              --assignee-object-id "$SP_OBJID" \
-              --assignee-principal-type ServicePrincipal \
-              --role "Storage Blob Data Contributor" \
-              --scope "$SCOPE" || true
-
-            echo "RBAC granted (ose ekzistonte). Po pres 30s…"
-            sleep 30
-
-# =========================================================
-# 2) STAGE: BUILD
-# =========================================================
+# =========================
+# 1) BUILD
+# =========================
 - stage: Build
-  displayName: "Build backend & frontend"
-  dependsOn: GrantRBAC
+  displayName: Build backend & frontend
   jobs:
   - job: backend
     displayName: Build backend
@@ -173,9 +89,9 @@ stages:
           ArtifactName: '$(ARTIFACT_FRONTEND)'
           publishLocation: 'Container'
 
-# =========================================================
-# 3) STAGE: DEPLOY
-# =========================================================
+# =========================
+# 2) DEPLOY
+# =========================
 - stage: Deploy
   displayName: Deploy to Azure
   dependsOn: Build
@@ -205,7 +121,7 @@ stages:
                   az webapp config appsettings set \
                     -g '$(AZ_RESOURCE_GROUP)' -n '$(WEBAPP_NAME)' \
                     --settings WEBSITE_RUN_FROM_PACKAGE=1 >/dev/null
-                  # Nëse WebApp është Linux dhe s'ke vendosur stack-un Java 21, çkomento:
+                  # Nëse WebApp është Linux dhe s’ke vendosur stack-un Java 21, çkomento vijën më poshtë:
                   # az webapp config set -g '$(AZ_RESOURCE_GROUP)' -n '$(WEBAPP_NAME)' --linux-fx-version "JAVA|21-java21"
 
             - task: AzureWebApp@1
@@ -238,7 +154,7 @@ stages:
                   set -euo pipefail
                   az account set --subscription "$(AZ_SUBSCRIPTION_ID)"
 
-                  # Aktivizo / konfiguro Static Website me AAD
+                  # Aktivizo/konfiguro Static Website me AAD (data-plane RBAC)
                   az storage blob service-properties update \
                     --account-name '$(STORAGE_NAME)' \
                     --auth-mode login \
@@ -255,6 +171,14 @@ stages:
                     --overwrite true \
                     --content-cache-control "no-cache, no-store, must-revalidate" \
                     --only-show-errors
+
+                  # # ALTERNATIVË (fshin skedarët e vjetër): 
+                  # az storage blob sync \
+                  #   --account-name '$(STORAGE_NAME)' \
+                  #   --auth-mode login \
+                  #   -c '$web' \
+                  #   -s '$(Pipeline.Workspace)/frontend' \
+                  #   --delete-destination true
 
                   ENDPOINT=$(az storage account show -n '$(STORAGE_NAME)' --query "primaryEndpoints.web" -o tsv)
                   echo "Frontend URL => ${ENDPOINT}"
