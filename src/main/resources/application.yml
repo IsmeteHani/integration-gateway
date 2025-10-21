@@ -1,13 +1,35 @@
 server:
   port: 8085
 
+services:
+  gateway:
+    openapi: /api-docs
 
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info
-  endpoint:
-    health:
-      probes:
-        enabled: true
+  product:
+    url: http://localhost:8081
+    openapi: /v3/api-docs
+
+  order:
+    url: http://localhost:8082
+    openapi: /v3/api-docs
+
+  user:
+    url: http://localhost:8080
+    openapi: /v3/api-docs
+
+springdoc:
+  swagger-ui:
+    urls:
+      - name: merged
+        url: /merged.json
+      - name: gateway
+        url: /v3/api-docs
+    display-operation-id: true
+    tags-sorter: alpha
+    operations-sorter: alpha
+
+
+logging:
+  level:
+    se.moln.integrationgateway: DEBUG
+    org.springframework.web: INFO

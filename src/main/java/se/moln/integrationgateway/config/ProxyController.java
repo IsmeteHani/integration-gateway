@@ -1,4 +1,4 @@
 package se.moln.integrationgateway.config;
 
-public class SecurityConfig {
+public class ProxyController {
 }
