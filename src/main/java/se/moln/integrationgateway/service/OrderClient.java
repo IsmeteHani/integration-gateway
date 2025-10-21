@@ -1,20 +1,28 @@
 package se.moln.integrationgateway.service;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 import se.moln.integrationgateway.dto.OrderStats;
-
-import java.time.LocalDate;
-import java.util.Random;
 
 @Service
 public class OrderClient {
-  private final Random rnd = new Random();
+
+  private final RestTemplate http;
+  private final String baseUrl;
+
+  public OrderClient(RestTemplate http, @Value("${services.order.url}") String baseUrl) {
+    this.http = http;
+    this.baseUrl = baseUrl;
+  }
 
   public OrderStats getStats() {
-    int base = 20 + rnd.nextInt(20);
-    int today = (LocalDate.now().getDayOfWeek().getValue() >= 6) ? base / 2 : base;
-    int last7 = today * 7 - rnd.nextInt(10);
-    double revenue = last7 * (500 + rnd.nextInt(2000));
-    return new OrderStats(today, last7, revenue);
+
+    try {
+      String url = baseUrl + "/analytics/monthly-kpis";
+      return http.getForObject(url, OrderStats.class);
+    } catch (Exception e) {
+      return new OrderStats(0L, 0L, 0.0);
+    }
   }
 }

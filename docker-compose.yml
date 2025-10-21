@@ -1,0 +1,11 @@
+version: "3.8"
+services:
+  integration-gateway:
+    build: .
+    container_name: integration-gateway
+    ports:
+      - "8085:8085"
+    environment:
+      - PRODUCT_SERVICE_BASE=http://host.docker.internal:8081
+      - ORDER_SERVICE_BASE=http://host.docker.internal:8082
+      - APPLICATIONINSIGHTS_CONNECTION_STRING=${APPLICATIONINSIGHTS_CONNECTION_STRING}

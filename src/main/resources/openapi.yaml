@@ -1,0 +1,29 @@
+openapi: 3.0.1
+info:
+  title: Integration Gateway API
+  version: 1.0.0
+  description: REST API som hanterar integrationer mellan molntjänster och adapters.
+  contact:
+    name: Ismete Hani
+    email: 96ismhan@gafe.molndal.se
+servers:
+  - url: http://localhost:8085
+paths:
+  /api/integrations/summary:
+    get:
+      summary: Hämta sammanfattning av integrationer
+      parameters:
+        - name: city
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+  /actuator/health:
+    get:
+      summary: Kontrollera API-hälsa
+      responses:
+        '200':
+          description: API är aktiv

@@ -1,4 +1,3 @@
 package se.moln.integrationgateway.dto;
 
-public class WeatherSummary {
-}
+public record WeatherSummary(String city, double temperature, String summary) {}

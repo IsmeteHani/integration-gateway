@@ -12,173 +12,200 @@ variables:
   ARTIFACT_FRONTEND: "frontend-dist"
 
   # ---- AZURE ----
-  AZURE_SERVICE_CONN: "rg-igw-demo"            # Emri i Service Connection në DevOps
+  AZURE_SERVICE_CONN: "rg-igw-demo"            # Service connection name në DevOps
   AZ_SUBSCRIPTION_ID: "df7afb34-aea5-4f80-a3a6-01fdfb865312"
   AZ_RESOURCE_GROUP: "rg-igw-demo"
   WEBAPP_NAME: "igw-backend-app"
   STORAGE_NAME: "stigmfrontendisme01"
 
 stages:
-# =========================
-# 1) BUILD
-# =========================
-- stage: Build
-  displayName: Build backend & frontend
-  jobs:
-  - job: backend
-    displayName: Build backend
-    steps:
-      - checkout: self
 
-      - task: Maven@4
-        inputs:
-          mavenPomFile: '$(BACKEND_DIR)/pom.xml'
-          goals: 'package'
-          options: '-DskipTests -ntp'
-          jdkVersionOption: '1.21'
-          jdkArchitectureOption: 'x64'
-          publishJUnitResults: false
+  # =========================
+  # 1) BUILD
+  # =========================
+  - stage: Build
+    displayName: Build backend & frontend
+    jobs:
 
-      - bash: |
-          set -euo pipefail
-          mkdir -p "$(Build.ArtifactStagingDirectory)/backend"
-          JAR=$(ls $(BACKEND_DIR)/target/*SNAPSHOT.jar 2>/dev/null || true)
-          if [ -z "$JAR" ]; then
-            JAR=$(ls $(BACKEND_DIR)/target/*.jar | head -n1)
-          fi
-          echo "Using JAR: $JAR"
-          cp "$JAR" "$(Build.ArtifactStagingDirectory)/backend/app.jar"
-        displayName: "Prepare app.jar"
+      - job: backend
+        displayName: Build backend
+        steps:
+          - checkout: self
+            fetchDepth: 0
+            clean: true
 
-      - task: ArchiveFiles@2
-        inputs:
-          rootFolderOrFile: "$(Build.ArtifactStagingDirectory)/backend"
-          includeRootFolder: false
-          archiveType: zip
-          archiveFile: "$(Build.ArtifactStagingDirectory)/app.zip"
+          # Diagnostikë: siguro që pom.xml ekziston dhe ka përmbajtje
+          - bash: |
+              set -euo pipefail
+              cd "$(BACKEND_DIR)"
+              echo "Working dir: $(pwd)"
+              ls -la
+              echo "------ pom.xml head ------"
+              sed -n '1,60p' pom.xml
+              echo "------ pom.xml size ------"
+              wc -c pom.xml
+            displayName: "Diagnostikë: ekziston pom.xml?"
 
-      - publish: "$(Build.ArtifactStagingDirectory)/app.zip"
-        artifact: $(ARTIFACT_BACKEND)
+          - task: Maven@4
+            displayName: "Maven package (Java 21)"
+            inputs:
+              mavenPomFile: '$(BACKEND_DIR)/pom.xml'
+              goals: 'package'
+              options: '-DskipTests -ntp'
+              jdkVersionOption: '1.21'
+              jdkArchitectureOption: 'x64'
+              publishJUnitResults: false
 
-  - job: frontend
-    displayName: Build frontend
-    steps:
-      - checkout: self
+          - bash: |
+              set -euo pipefail
+              mkdir -p "$(Build.ArtifactStagingDirectory)/backend"
+              # gjej jar-in (SNAPSHOT ose release)
+              JAR=$(ls $(BACKEND_DIR)/target/*SNAPSHOT.jar 2>/dev/null || true)
+              if [ -z "$JAR" ]; then
+                JAR=$(ls $(BACKEND_DIR)/target/*.jar | head -n1)
+              fi
+              echo "Using JAR: $JAR"
+              cp "$JAR" "$(Build.ArtifactStagingDirectory)/backend/app.jar"
+            displayName: "Prepare app.jar"
 
-      - task: NodeTool@0
-        inputs:
-          versionSpec: '20.x'
+          - task: ArchiveFiles@2
+            inputs:
+              rootFolderOrFile: "$(Build.ArtifactStagingDirectory)/backend"
+              includeRootFolder: false
+              archiveType: zip
+              archiveFile: "$(Build.ArtifactStagingDirectory)/app.zip"
 
-      - task: Cache@2
-        inputs:
-          key: 'npm | $(Agent.OS) | $(FRONTEND_DIR)/package-lock.json'
-          restoreKeys: |
-            npm | $(Agent.OS)
-          path: '$(FRONTEND_DIR)/node_modules'
+          - publish: "$(Build.ArtifactStagingDirectory)/app.zip"
+            artifact: $(ARTIFACT_BACKEND)
 
-      - bash: |
-          set -euo pipefail
-          cd "$(FRONTEND_DIR)"
-          if [ -f package-lock.json ]; then npm ci; else npm install; fi
-          npm run build
-        displayName: "npm install && build"
+      - job: frontend
+        displayName: Build frontend (if present)
+        steps:
+          - checkout: self
+            fetchDepth: 0
+            clean: true
 
-      - task: PublishBuildArtifacts@1
-        inputs:
-          PathtoPublish: '$(FRONTEND_DIR)/dist'
-          ArtifactName: '$(ARTIFACT_FRONTEND)'
-          publishLocation: 'Container'
+          - bash: |
+              if [ ! -d "$(FRONTEND_DIR)" ]; then
+                echo "No $(FRONTEND_DIR) directory -> skipping frontend build."
+                echo "##vso[task.setvariable variable=SKIP_FE;isOutput=true]true"
+              else
+                echo "##vso[task.setvariable variable=SKIP_FE;isOutput=true]false"
+              fi
+            name: probe
+            displayName: "Check if frontend exists"
 
-# =========================
-# 2) DEPLOY
-# =========================
-- stage: Deploy
-  displayName: Deploy to Azure
-  dependsOn: Build
-  jobs:
-  - deployment: deploy_backend
-    displayName: Deploy backend
-    environment: 'prod'
-    strategy:
-      runOnce:
-        deploy:
-          steps:
-            - task: DownloadPipelineArtifact@2
-              inputs:
-                buildType: 'current'
-                artifactName: '$(ARTIFACT_BACKEND)'
-                targetPath: '$(Pipeline.Workspace)/backend'
+          - task: NodeTool@0
+            condition: eq(variables['probe.SKIP_FE'], 'false')
+            inputs:
+              versionSpec: '20.x'
 
-            - task: AzureCLI@2
-              displayName: "Configure Web App"
-              inputs:
-                azureSubscription: '$(AZURE_SERVICE_CONN)'
-                scriptType: bash
-                scriptLocation: inlineScript
-                inlineScript: |
-                  set -euo pipefail
-                  az account set --subscription "$(AZ_SUBSCRIPTION_ID)"
-                  az webapp config appsettings set \
-                    -g '$(AZ_RESOURCE_GROUP)' -n '$(WEBAPP_NAME)' \
-                    --settings WEBSITE_RUN_FROM_PACKAGE=1 >/dev/null
-                  # Nëse WebApp është Linux dhe s’ke vendosur stack-un Java 21, çkomento vijën më poshtë:
-                  # az webapp config set -g '$(AZ_RESOURCE_GROUP)' -n '$(WEBAPP_NAME)' --linux-fx-version "JAVA|21-java21"
+          - task: Cache@2
+            condition: eq(variables['probe.SKIP_FE'], 'false')
+            inputs:
+              key: 'npm | $(Agent.OS) | $(FRONTEND_DIR)/package-lock.json'
+              restoreKeys: |
+                npm | $(Agent.OS)
+              path: '$(FRONTEND_DIR)/node_modules'
 
-            - task: AzureWebApp@1
-              displayName: "Deploy backend to App Service"
-              inputs:
-                azureSubscription: '$(AZURE_SERVICE_CONN)'
-                appName: '$(WEBAPP_NAME)'
-                package: '$(Pipeline.Workspace)/backend/app.zip'
+          - bash: |
+              set -euo pipefail
+              cd "$(FRONTEND_DIR)"
+              if [ -f package-lock.json ]; then npm ci; else npm install; fi
+              npm run build
+            condition: eq(variables['probe.SKIP_FE'], 'false')
+            displayName: "npm install && build"
 
-  - deployment: deploy_frontend
-    displayName: Deploy frontend (Static Website)
-    environment: 'prod'
-    strategy:
-      runOnce:
-        deploy:
-          steps:
-            - task: DownloadPipelineArtifact@2
-              inputs:
-                buildType: 'current'
-                artifactName: '$(ARTIFACT_FRONTEND)'
-                targetPath: '$(Pipeline.Workspace)/frontend'
+          - task: PublishBuildArtifacts@1
+            condition: eq(variables['probe.SKIP_FE'], 'false')
+            inputs:
+              PathtoPublish: '$(FRONTEND_DIR)/dist'
+              ArtifactName: '$(ARTIFACT_FRONTEND)'
+              publishLocation: 'Container'
 
-            - task: AzureCLI@2
-              displayName: "Enable static website & upload"
-              inputs:
-                azureSubscription: '$(AZURE_SERVICE_CONN)'
-                scriptType: bash
-                scriptLocation: inlineScript
-                inlineScript: |
-                  set -euo pipefail
-                  az account set --subscription "$(AZ_SUBSCRIPTION_ID)"
+  # =========================
+  # 2) DEPLOY
+  # =========================
+  - stage: Deploy
+    displayName: Deploy to Azure
+    dependsOn: Build
+    jobs:
 
-                  # Aktivizo/konfiguro Static Website me AAD (data-plane RBAC)
-                  az storage blob service-properties update \
-                    --account-name '$(STORAGE_NAME)' \
-                    --auth-mode login \
-                    --static-website \
-                    --index-document index.html \
-                    --404-document index.html >/dev/null
+      - deployment: deploy_backend
+        displayName: Deploy backend
+        environment: 'prod'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: DownloadPipelineArtifact@2
+                  inputs:
+                    buildType: 'current'
+                    artifactName: '$(ARTIFACT_BACKEND)'
+                    targetPath: '$(Pipeline.Workspace)/backend'
 
-                  # Upload me overwrite + shmangie cache
-                  az storage blob upload-batch \
-                    --account-name '$(STORAGE_NAME)' \
-                    --auth-mode login \
-                    -s '$(Pipeline.Workspace)/frontend' \
-                    -d '$web' \
-                    --overwrite true \
-                    --content-cache-control "no-cache, no-store, must-revalidate" \
-                    --only-show-errors
+                - task: AzureCLI@2
+                  displayName: "Configure Web App"
+                  inputs:
+                    azureSubscription: '$(AZURE_SERVICE_CONN)'
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      set -euo pipefail
+                      az account set --subscription "$(AZ_SUBSCRIPTION_ID)"
+                      az webapp config appsettings set \
+                        -g '$(AZ_RESOURCE_GROUP)' -n '$(WEBAPP_NAME)' \
+                        --settings WEBSITE_RUN_FROM_PACKAGE=1 >/dev/null
+                      # Nese eshte Linux WebApp dhe stack-u s'eshte Java 21, mund te vendosesh:
+                      # az webapp config set -g '$(AZ_RESOURCE_GROUP)' -n '$(WEBAPP_NAME)' --linux-fx-version "JAVA|21-java21"
 
-                  # # ALTERNATIVË (fshin skedarët e vjetër): 
-                  # az storage blob sync \
-                  #   --account-name '$(STORAGE_NAME)' \
-                  #   --auth-mode login \
-                  #   -c '$web' \
-                  #   -s '$(Pipeline.Workspace)/frontend' \
-                  #   --delete-destination true
+                - task: AzureWebApp@1
+                  displayName: "Deploy backend to App Service"
+                  inputs:
+                    azureSubscription: '$(AZURE_SERVICE_CONN)'
+                    appName: '$(WEBAPP_NAME)'
+                    package: '$(Pipeline.Workspace)/backend/app.zip'
 
-                  ENDPOINT=$(az storage account show -n '$(STORAGE_NAME)' --query "primaryEndpoints.web" -o tsv)
-                  echo "Frontend URL => ${ENDPOINT}"
+      - deployment: deploy_frontend
+        displayName: Deploy frontend (Static Website)
+        environment: 'prod'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: DownloadPipelineArtifact@2
+                  inputs:
+                    buildType: 'current'
+                    artifactName: '$(ARTIFACT_FRONTEND)'
+                    targetPath: '$(Pipeline.Workspace)/frontend'
+                  condition: and(succeeded(), ne(variables['Build.frontend.probe.SKIP_FE'], 'true'))
+
+                - task: AzureCLI@2
+                  displayName: "Enable static website & upload"
+                  condition: and(succeeded(), ne(variables['Build.frontend.probe.SKIP_FE'], 'true'))
+                  inputs:
+                    azureSubscription: '$(AZURE_SERVICE_CONN)'
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      set -euo pipefail
+                      az account set --subscription "$(AZ_SUBSCRIPTION_ID)"
+                      
+                      az storage blob service-properties update \
+                        --account-name '$(STORAGE_NAME)' \
+                        --auth-mode login \
+                        --static-website \
+                        --index-document index.html \
+                        --404-document index.html >/dev/null
+                      
+                      az storage blob upload-batch \
+                        --account-name '$(STORAGE_NAME)' \
+                        --auth-mode login \
+                        -s '$(Pipeline.Workspace)/frontend' \
+                        -d '$web' \
+                        --overwrite true \
+                        --content-cache-control "no-cache, no-store, must-revalidate" \
+                        --only-show-errors
+                      
+                      ENDPOINT=$(az storage account show -n '$(STORAGE_NAME)' --query "primaryEndpoints.web" -o tsv)
+                      echo "Frontend URL => ${ENDPOINT}"
