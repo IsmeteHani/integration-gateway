@@ -1,0 +1,9 @@
+{
+  "openapi": "3.0.1",
+  "info": { "title": "User Service API", "version": "v1" },
+  "paths": {
+    "/auth/login":  { "post": { "summary": "Login",  "responses": { "200": { "description": "OK" } } } },
+    "/auth/register": { "post": { "summary": "Register", "responses": { "201": { "description": "Created" } } } },
+    "/user/users": { "get": { "summary": "List users (ADMIN)", "responses": { "200": { "description": "OK" } } } }
+  }
+}

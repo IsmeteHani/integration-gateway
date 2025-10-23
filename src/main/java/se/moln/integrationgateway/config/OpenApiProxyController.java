@@ -16,20 +16,20 @@ public class OpenApiProxyController {
         this.rest = rest;
     }
 
-    @Value("${services.order.url}")    private String orderUrl;
-    @Value("${services.order.openapi:/v3/api-docs}") private String orderOpenApi;
-
-    @Value("${services.product.url}")  private String productUrl;
+    @Value("${services.product.url}")   private String productUrl;
     @Value("${services.product.openapi:/v3/api-docs}") private String productOpenApi;
 
-    @Value("${services.user.url}")     private String userUrl;
-    @Value("${services.user.openapi:/v3/api-docs}") private String userOpenApi;
+    @Value("${services.order.url}")     private String orderUrl;
+    @Value("${services.order.openapi:/v3/api-docs}")   private String orderOpenApi;
+
+    @Value("${services.user.url}")      private String userUrl;
+    @Value("${services.user.openapi:/v3/api-docs}")    private String userOpenApi;
 
     private String resolveBase(String service) {
         return switch (service.toLowerCase()) {
+            case "product", "products" -> productUrl + productOpenApi;
             case "order", "orders"     -> orderUrl   + orderOpenApi;
-            case "product","products"  -> productUrl + productOpenApi;
-            case "user","users"        -> userUrl    + userOpenApi;
+            case "user", "users"       -> userUrl    + userOpenApi;
             default -> throw new IllegalArgumentException("Unknown service: " + service);
         };
     }
@@ -41,9 +41,10 @@ public class OpenApiProxyController {
             String body = rest.get().uri(url).retrieve().body(String.class);
             return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(body);
         } catch (Exception ex) {
+            String msg = "Failed to fetch OpenAPI from " + url + ": " + ex.getMessage();
             return ResponseEntity.status(502)
                     .contentType(MediaType.TEXT_PLAIN)
-                    .body("Failed to fetch OpenAPI from " + url + ": " + ex.getMessage());
+                    .body(msg);
         }
     }
 }

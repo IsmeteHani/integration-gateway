@@ -1,0 +1,12 @@
+{
+  "openapi": "3.0.1",
+  "info": { "title": "Order Service API", "version": "v1" },
+  "paths": {
+    "/api/orders/history": {
+      "get": { "summary": "Get order history", "responses": { "200": { "description": "OK" } } }
+    },
+    "/api/orders/purchase": {
+      "post": { "summary": "Make purchase", "responses": { "200": { "description": "OK" } } }
+    }
+  }
+}

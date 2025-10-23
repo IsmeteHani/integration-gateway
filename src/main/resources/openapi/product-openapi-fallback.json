@@ -1,0 +1,21 @@
+{
+  "openapi": "3.0.1",
+  "info": { "title": "Product Service API", "version": "v1" },
+  "paths": {
+    "/api/products": {
+      "get": {
+        "summary": "List products (paging)",
+        "responses": { "200": { "description": "OK" } }
+      },
+      "post": {
+        "summary": "Create product",
+        "responses": { "201": { "description": "Created" } }
+      }
+    },
+    "/api/products/{id}": {
+      "get": { "summary": "Get product", "parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"integer"}}],
+        "responses": { "200": { "description": "OK" } }
+      }
+    }
+  }
+}

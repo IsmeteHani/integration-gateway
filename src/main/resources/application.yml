@@ -1,35 +1,35 @@
 server:
-  port: 8085
+  port: ${PORT:8085}
 
+spring:
+  application:
+    name: integration-gateway
+
+# URL-të e shërbimeve (prod)
 services:
-  gateway:
-    openapi: /api-docs
-
   product:
-    url: http://localhost:8081
+    url: https://productservice.drillbi.se
     openapi: /v3/api-docs
-
   order:
-    url: http://localhost:8082
+    url: https://orderservice.drillbi.se
     openapi: /v3/api-docs
-
   user:
-    url: http://localhost:8080
+    url: https://userservice.drillbi.se
     openapi: /v3/api-docs
 
+# Logging (mbaje vetëm nivelet)
+logging:
+  level:
+    root: INFO
+    se.moln.integrationgateway: INFO
+    org.springdoc: INFO
+
+# Konfigurimi i Springdoc / Swagger UI
 springdoc:
+  api-docs:
+    enabled: true
   swagger-ui:
-    urls:
-      - name: merged
-        url: /merged.json
-      - name: gateway
-        url: /v3/api-docs
+    path: /swagger-ui.html
     display-operation-id: true
     tags-sorter: alpha
     operations-sorter: alpha
-
-
-logging:
-  level:
-    se.moln.integrationgateway: DEBUG
-    org.springframework.web: INFO
